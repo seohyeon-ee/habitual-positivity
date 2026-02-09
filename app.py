@@ -20,20 +20,23 @@ st.set_page_config(page_title="AI 습관 트래커", page_icon="📊", layout="w
 def safe_get_json(url: str, params=None, headers=None, timeout=10):
     try:
         r = requests.get(url, params=params, headers=headers, timeout=timeout)
+        # ✅ 디버그: 응답 상태/본문 일부 확인
         if r.status_code != 200:
-            return None
+            return {
+                "__error__": True,
+                "status_code": r.status_code,
+                "text": r.text[:500],
+                "url": r.url,
+            }
         return r.json()
-    except Exception:
-        return None
+    except Exception as e:
+        return {"__error__": True, "exception": str(e), "url": url}
+
 
 
 def get_weather(city_query: str, api_key: str):
-    """
-    OpenWeatherMap에서 날씨 가져오기 (한국어, 섭씨)
-    실패 시 None 반환, timeout=10
-    """
     if not api_key:
-        return None
+        return None, {"__error__": True, "msg": "API Key 없음"}
 
     url = "https://api.openweathermap.org/data/2.5/weather"
     params = {
@@ -42,9 +45,15 @@ def get_weather(city_query: str, api_key: str):
         "units": "metric",
         "lang": "kr",
     }
+
     data = safe_get_json(url, params=params, timeout=10)
+
+    # ❌ 실패하면 debug 같이 반환
     if not data:
-        return None
+        return None, {"__error__": True, "msg": "응답 없음"}
+
+    if isinstance(data, dict) and data.get("__error__"):
+        return None, data
 
     try:
         weather = {
@@ -52,15 +61,12 @@ def get_weather(city_query: str, api_key: str):
             "desc": (data.get("weather") or [{}])[0].get("description"),
             "temp": (data.get("main") or {}).get("temp"),
             "feels_like": (data.get("main") or {}).get("feels_like"),
-            "humidity": (data.get("main") or {}).get("humidity"),
-            "wind": (data.get("wind") or {}).get("speed"),
         }
-        # 필수값 없으면 None
-        if weather["desc"] is None or weather["temp"] is None:
-            return None
-        return weather
-    except Exception:
-        return None
+        return weather, None
+
+    except Exception as e:
+        return None, {"__error__": True, "exception": str(e)}
+
 
 
 def get_dog_image():
@@ -380,8 +386,14 @@ if "latest_share" not in st.session_state:
 
 if gen:
     # 1) Weather
-    weather = get_weather(CITY_OPTIONS[city_display], weather_key)
+    weather, debug = get_weather(CITY_OPTIONS[city_display], weather_key)
+
+    # ✅ 여기서 오류 출력
+    if debug and isinstance(debug, dict) and debug.get("__error__"):
+        st.error(f"날씨 API 오류: {debug}")
+
     st.session_state["latest_weather"] = weather
+
 
     # 2) Dog
     dog = get_dog_image()
